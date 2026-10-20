@@ -1,0 +1,16 @@
+bin/
+obj/
+publish/
+*.zip
+
+# Local secrets, user config and real-data screenshots (keep out of commits)
+.env
+.env.*
+!.env.example
+*.local.json
+config.json
+settings.local.*
+user-config/
+screenshots/private/
+screenshots/real/
+Icons/

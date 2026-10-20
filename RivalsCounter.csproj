@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>disable</Nullable>
+    <AssemblyName>RivalsCounter</AssemblyName>
+    <RootNamespace>RivalsCounter</RootNamespace>
+    <Authors>Kutay Kılıç</Authors>
+    <Company>Kutay Kılıç</Company>
+    <Product>Rivals Counter</Product>
+    <Copyright>© 2026 Kutay Kılıç</Copyright>
+    <Version>1.0.0</Version>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <TieredPGO>true</TieredPGO>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="Data\heroes.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
