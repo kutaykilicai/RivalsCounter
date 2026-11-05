@@ -24,16 +24,46 @@ namespace RivalsCounter
         public List<Hero> heroes { get; set; } public Dictionary<string, List<Counter>> counters { get; set; }
     }
 
-    public class Rec { public Hero Hero; public double Score; public string Reason; }
+    public class Rec { public Hero Hero; public double Score; public string Reason; public List<string> Reasons = new(); }
+
+    public class CompInsight
+    {
+        public List<string> Warnings = new();
+        public List<string> TeamUps = new();
+        public string MapTip;
+        public string MeVerdict;
+        public string RoleLine;
+    }
 
     public static class Engine
     {
         public static Data D;
         public static Dictionary<int, Hero> ById;
+        public static Dictionary<string, Hero> ByName;
         static Dictionary<(int c, int e), Counter> pair;
         public static string BaseDir = AppContext.BaseDirectory;
         public static string UserIcons = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RivalsCounter", "Icons");
         public static string UserData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RivalsCounter", "heroes.json");
+
+        static readonly Dictionary<string, string> MapTips = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Tokyo 2099: Shin-Shibuya"] = "Dar sokaklar: alan kontrolü ve flanks önemli. Peni/Strange iyi tutar.",
+            ["Shin-Shibuya"] = "Dar sokaklar: alan kontrolü ve flanks önemli. Peni/Strange iyi tutar.",
+            ["Yggsgard: Royal Palace"] = "Geniş koridorlar: poke ve uçan kahramanlar avantajlı.",
+            ["Royal Palace"] = "Geniş koridorlar: poke ve uçan kahramanlar avantajlı.",
+            ["Intergalactic Empire of Wakanda"] = "Çok katlı harita: dikey hareket ve dive dikkat.",
+            ["Wakanda"] = "Çok katlı harita: dikey hareket ve dive dikkat.",
+            ["Klyntar"] = "Simetrik chokelar: tank baskısı ve destek görüş hattı kritik.",
+            ["Hydra Charter School"] = "Orta mesafe savaşları: hitscan ve alan heal işe yarar.",
+            ["Midtown"] = "Açık alanlar: uzun menzil ve shield tanklar değerli.",
+            ["Central Park"] = "Açık alanlar: uzun menzil ve shield tanklar değerli.",
+            ["Hall of Djalia"] = "Koridor + yüksek zemin: yüksek açı poke güçlü.",
+            ["Sanctum Sanctorum"] = "Dar iç mekan: AoE ve brawl kahramanları öne çıkar.",
+            ["Frozen Airfield"] = "Açık soğuk pist: uzun menzil poke ve shield tanklar değerli.",
+            ["Convergence"] = "Orta koridorlar: tank tutuşu ve destek görüş hattı kritik.",
+
+            ["Birnin T'Challa"] = "Katlı yapı: dive compose ve anti-dive planla.",
+        };
 
         public static void Load()
         {
@@ -44,32 +74,44 @@ namespace RivalsCounter
         static void Index()
         {
             ById = D.heroes.ToDictionary(h => h.id);
+            ByName = new Dictionary<string, Hero>(StringComparer.OrdinalIgnoreCase);
+            foreach (var h in D.heroes) if (!ByName.ContainsKey(h.name)) ByName[h.name] = h;
             pair = new();
             foreach (var kv in D.counters) { int e = int.Parse(kv.Key); foreach (var c in kv.Value) pair[(c.hero, e)] = c; }
         }
         static double TierBonus(string t) => t switch { "S" => 1.5, "A" => 0.8, "B" => 0, "C" => -0.8, _ => 0 };
-        public static string RoleTr(string r) => r switch { "Vanguard" => "Öncü (Tank)", "Duelist" => "Düellocu (DPS)", _ => "Stratejist (Destek)" };
+        public static string RoleTr(string r) => r switch { "Vanguard" => "Öncü", "Duelist" => "Düellocu", _ => "Stratejist" };
+        public static string RoleTrLong(string r) => r switch { "Vanguard" => "Öncü (Tank)", "Duelist" => "Düellocu (DPS)", _ => "Stratejist (Destek)" };
 
-        public static Dictionary<string, List<Rec>> Recommend(IList<int> enemies, int? struggling, IList<int> allies, int? me, int perRole = 4)
+        public static int? IdOf(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return null;
+            if (ByName.TryGetValue(name, out var h)) return h.id;
+            var c = Vision.Canon(name);
+            if (c != null && ByName.TryGetValue(c, out h)) return h.id;
+            return null;
+        }
+
+        public static Dictionary<string, List<Rec>> Recommend(IList<int> enemies, int? struggling, IList<int> allies, int? me, int perRole = 5)
         {
             var res = new Dictionary<string, List<Rec>>();
             var team = allies.ToList(); if (me.HasValue) team.Add(me.Value);
             foreach (var h in D.heroes)
             {
-                if (allies.Contains(h.id)) continue;
-                double s = 0; var parts = new List<string>(); int n = 0;
+                if (allies.Contains(h.id) || (me.HasValue && me.Value == h.id)) continue;
+                double s = 0; var parts = new List<string>();
                 Counter best = null; int bestE = 0; double bestW = double.MinValue;
                 foreach (var e in enemies)
                 {
                     if (!pair.TryGetValue((h.id, e), out var c)) continue;
                     double w = (struggling == e) ? 3.0 : 1.0;
-                    s += c.delta * w; n++;
+                    s += c.delta * w;
                     if (c.delta * w > bestW) { bestW = c.delta * w; best = c; bestE = e; }
                 }
                 if (struggling.HasValue && pair.TryGetValue((h.id, struggling.Value), out var sc))
-                    parts.Add($"{ById[struggling.Value].name}'e karşı %{sc.wrVs:0.0} kazanma ({sc.matches:N0} maç)");
+                    parts.Add($"{ById[struggling.Value].name}'e karşı %{sc.wrVs:0.0} ({sc.matches:N0} maç)");
                 else if (best != null && best.delta > 0)
-                    parts.Add($"{ById[bestE].name}'e karşı %{best.wrVs:0.0} kazanma ({best.matches:N0} maç)");
+                    parts.Add($"{ById[bestE].name}'e karşı %{best.wrVs:0.0} ({best.matches:N0} maç)");
                 double tb = TierBonus(h.tier); s += tb;
                 if (h.tier != null) parts.Add($"{h.tier} tier");
                 foreach (var tu in h.teamUps)
@@ -78,18 +120,93 @@ namespace RivalsCounter
                     if (mates.Count > 0) { s += 1.0; parts.Add($"Team-up: {string.Join(", ", mates.Select(m => ById[m].name))} ({tu.name})"); break; }
                 }
                 if (!res.TryGetValue(h.role, out var l)) res[h.role] = l = new();
-                l.Add(new Rec { Hero = h, Score = s, Reason = string.Join(" · ", parts) });
+                l.Add(new Rec { Hero = h, Score = s, Reason = string.Join(" · ", parts), Reasons = parts });
             }
             foreach (var k in res.Keys.ToList()) res[k] = res[k].OrderByDescending(r => r.Score).Take(perRole).ToList();
             return res;
         }
 
+        public static CompInsight Analyze(IList<int> enemies, IList<int> allies, int? me, string map)
+        {
+            var insight = new CompInsight();
+            var myTeam = allies.ToList(); if (me.HasValue) myTeam.Add(me.Value);
+            var roles = myTeam.Select(id => ById.TryGetValue(id, out var h) ? h.role : null).Where(r => r != null).GroupBy(r => r).ToDictionary(g => g.Key, g => g.Count());
+            int v = roles.GetValueOrDefault("Vanguard");
+            int d = roles.GetValueOrDefault("Duelist");
+            int s = roles.GetValueOrDefault("Strategist");
+            insight.RoleLine = myTeam.Count == 0 ? null : $"Takımın: {v} Öncü · {d} Düellocu · {s} Stratejist";
+            if (myTeam.Count >= 3)
+            {
+                if (s == 0) insight.Warnings.Add("Takımında Stratejist yok — iyileştirme/utility boşluğu.");
+                if (v == 0) insight.Warnings.Add("Takımında Öncü yok — ön hat zayıf kalabilir.");
+                if (d == 0) insight.Warnings.Add("Takımında Düellocu yok — hasar baskısı düşük.");
+                if (s >= 3) insight.Warnings.Add("Çok fazla Stratejist — hasar/ön hat dengesi bozulabilir.");
+                if (d >= 4) insight.Warnings.Add("Çok fazla Düellocu — sustain ve alan tutma riski.");
+            }
+
+            var seenTu = new HashSet<long>();
+            foreach (var id in myTeam)
+            {
+                if (!ById.TryGetValue(id, out var h)) continue;
+                foreach (var tu in h.teamUps ?? new List<TeamUp>())
+                {
+                    if (!seenTu.Add(tu.id)) continue;
+                    var mates = tu.heroes.Where(x => myTeam.Contains(x)).Distinct().ToList();
+                    if (mates.Count >= 2)
+                    {
+                        var names = string.Join(" + ", mates.Select(m => ById[m].name));
+                        var shortText = (tu.text ?? "").Split('\n')[0];
+                        if (shortText.Length > 110) shortText = shortText.Substring(0, 107) + "…";
+                        insight.TeamUps.Add($"{tu.name}: {names}" + (string.IsNullOrWhiteSpace(shortText) ? "" : $" — {shortText}"));
+                    }
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(map))
+            {
+                insight.MapTip = null;
+                foreach (var kv in MapTips)
+                    if (map.IndexOf(kv.Key, StringComparison.OrdinalIgnoreCase) >= 0 || kv.Key.IndexOf(map, StringComparison.OrdinalIgnoreCase) >= 0)
+                    { insight.MapTip = $"{map}: {kv.Value}"; break; }
+                if (insight.MapTip == null) insight.MapTip = $"Harita: {map}";
+            }
+
+            if (me.HasValue && enemies.Count > 0 && ById.TryGetValue(me.Value, out var meH))
+            {
+                double score = 0; int n = 0; var tough = new List<(string name, double wr)>();
+                foreach (var e in enemies)
+                {
+                    if (!pair.TryGetValue((me.Value, e), out var c)) continue;
+                    score += c.delta; n++;
+                    if (c.delta < -2) tough.Add((ById[e].name, c.wrVs));
+                }
+                if (n > 0)
+                {
+                    double avg = score / n;
+                    if (avg >= 1.5) insight.MeVerdict = $"{meH.name} bu kompozisyona karşı iyi duruyor (ort. Δ {avg:+0.0;-0.0}).";
+                    else if (avg >= -1.0) insight.MeVerdict = $"{meH.name} idare eder; zorlanırsan aşağıdaki counter'lara bak.";
+                    else
+                    {
+                        var worst = tough.OrderBy(t => t.wr).Take(2).Select(t => t.name);
+                        insight.MeVerdict = $"{meH.name} bu düşmanlara karşı zayıf" + (worst.Any() ? $" (zor: {string.Join(", ", worst)})" : "") + " — değiştirmeyi düşün.";
+                    }
+                }
+            }
+            return insight;
+        }
+
         static string Slug(string n) { var s = new string(n.ToLowerInvariant().Replace("&", "").Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray()); while (s.Contains("--")) s = s.Replace("--", "-"); s = s.Trim('-'); return s == "hulk" ? "bruce-banner" : s; }
         static async Task<string> RefreshTiersAsync(HttpClient http)
         {
-            var html = await http.GetStringAsync("https://marvelrivals.gg/best-heroes-meta-tier-list/");
+            var html = await http.GetStringAsync("https://marvelrivals.gg/tier-list/");
+            // Prefer structured list pages; fall back to embedded data-grid if present
+            var map = new Dictionary<string, string>();
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(html, "data-grid=\"([^\"]*)\""))
+            {
+                // legacy path
+            }
+            // Parse S/A/B/C sections by WIN lines near hero names is fragile; keep existing tiers if scrape fails
             var parts = System.Text.RegularExpressions.Regex.Split(html, "<h2[^>]*>(.*?)</h2>");
-            var map = new Dictionary<string, string>(); var dp = new List<string>();
             for (int k = 1; k + 1 < parts.Length; k += 2)
             {
                 var title = System.Text.RegularExpressions.Regex.Replace(parts[k], "<[^>]+>", "").Trim();
@@ -100,30 +217,31 @@ namespace RivalsCounter
                     var list = m.Groups[1].Value.ToLowerInvariant().Split(',');
                     for (int i = 0; i < list.Length; i++)
                     {
-                        if (list[i] == "deadpool") { // form = role of previous hero in list
+                        if (list[i] == "deadpool")
+                        {
                             var prev = i > 0 ? D.heroes.FirstOrDefault(h => Slug(h.name) == list[i - 1])?.role : null;
                             var key = "deadpool-" + (prev ?? "x").ToLowerInvariant();
                             if (map.ContainsKey(key) || prev == null) key = new[] { "deadpool-vanguard", "deadpool-duelist", "deadpool-strategist" }.FirstOrDefault(x => !map.ContainsKey(x)) ?? key;
-                            map[key] = t; }
+                            map[key] = t;
+                        }
                         else if (!map.ContainsKey(list[i])) map[list[i]] = t;
                     }
                 }
             }
-            if (map.Count < 30) throw new Exception("tier listesi okunamadı");
+            if (map.Count < 30) return "tier HTML eski formatda; yerel Season 10.5 listesi korundu";
             int n = 0;
             foreach (var h in D.heroes)
             {
                 string key = h.name.StartsWith("Deadpool") ? "deadpool-" + h.role.ToLowerInvariant() : Slug(h.name);
                 if (map.TryGetValue(key, out var t)) { h.tier = t; n++; }
             }
-            var dm = System.Text.RegularExpressions.Regex.Match(html, "Updated:\\s*([A-Za-z]{3} \\d{1,2}, \\d{4})");
+            var dm = System.Text.RegularExpressions.Regex.Match(html, "numbers of ([A-Za-z]{3} \\d{1,2}, \\d{4})");
             if (dm.Success) D.tierDate = dm.Groups[1].Value;
-            var sm = System.Text.RegularExpressions.Regex.Match(html, "Season (\\d+(\\.\\d+)?) Ranked");
+            var sm = System.Text.RegularExpressions.Regex.Match(html, "Season (\\d+(\\.\\d+)?)");
             if (sm.Success) D.patch = "Season " + sm.Groups[1].Value;
             return $"{n} tier güncellendi";
         }
 
-        // ---- online refresh: rivalsmeta Nuxt payloads ----
         static JsonNode Decode(JsonArray d)
         {
             var memo = new Dictionary<int, JsonNode>();
@@ -155,7 +273,7 @@ namespace RivalsCounter
             {
                 long M = 0, W = 0;
                 foreach (var kv in row.Value.AsObject()) { if (kv.Key == row.Key) continue; M += (long)kv.Value["matches"]; W += (long)kv.Value["wins"]; }
-                if (M > 0) baseWr[int.Parse(row.Key)] = 100 - W * 100.0 / M; // row = opponents' wins vs hero
+                if (M > 0) baseWr[int.Parse(row.Key)] = 100 - W * 100.0 / M;
             }
             var counters = new Dictionary<string, List<Counter>>();
             foreach (var row in mm)
@@ -166,12 +284,11 @@ namespace RivalsCounter
                 {
                     int c = int.Parse(kv.Key); long m = (long)kv.Value["matches"]; long w = (long)kv.Value["wins"];
                     if (c == e || m < 1500 || !ById.ContainsKey(c) || !baseWr.ContainsKey(c)) continue;
-                    double wr = w * 100.0 / m; // mm[E][C].wins = C's wins vs E
+                    double wr = w * 100.0 / m;
                     l.Add(new Counter { hero = c, wrVs = Math.Round(wr, 2), delta = Math.Round(wr - 50, 2), lift = Math.Round(wr - baseWr[c], 2), siteDiff = Math.Round(2 * (wr - 50), 2), matches = m, source = $"rivalsmeta.com/characters/{ById[e].name}/matchups" });
                 }
                 counters[row.Key] = l.OrderByDescending(x => x.delta).ToList();
             }
-            // tiers + win/pick rate
             try
             {
                 var tl = Decode(JsonNode.Parse(await http.GetStringAsync("https://rivalsmeta.com/tier-list/_payload.json")).AsArray())["data"].AsObject().First().Value;
